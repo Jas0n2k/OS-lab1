@@ -1,7 +1,7 @@
 typedef struct c
 {
   char **pgmlist;
-  struct c *next;
+  struct c *next; // Next Program in the pipeline
 } Pgm;
 
 typedef struct node

@@ -23,14 +23,17 @@
 #include <string.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 // The <unistd.h> header is your gateway to the OS's process management facilities.
 #include <unistd.h>
 
 #include "parse.h"
 
-static void print_cmd(Command *cmd);
+static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
+static int execute_cmd(Command *cmd);
 void stripwhite(char *);
 
 int main(void)
@@ -39,7 +42,11 @@ int main(void)
   {
     char *line;
     line = readline("> ");
-
+    if (line == NULL)
+    {
+      printf("\n");
+      break;
+    }
     // Remove leading and trailing whitespace from the line
     stripwhite(line);
 
@@ -53,6 +60,7 @@ int main(void)
       {
         // Just prints cmd
         print_cmd(&cmd);
+        execute_cmd(&cmd); // TO-DO
       }
       else
       {
@@ -111,6 +119,33 @@ static void print_pgm(Pgm *p)
   }
 }
 
+static int execute_cmd(Command *cmd)
+{
+  if (cmd == NULL)
+  {
+    return -1; // Nothing to execute
+  }
+
+  Pgm *current_pgm = cmd->pgm;
+
+  pid_t pid = fork();
+  assert(pid >= 0);
+  if (pid == 0)
+  {
+    // execute command
+    // WORKS ONLY FOR SIMPLE CMDS
+    execvp(current_pgm->pgmlist[0], current_pgm->pgmlist);
+  }
+  else
+  {
+    // parent proccess should wait for child to finish
+    wait(NULL);
+  }
+
+  // Ignore the piping for now
+
+  return 0;
+}
 
 /* Strip whitespace from the start and end of a string.
  *
