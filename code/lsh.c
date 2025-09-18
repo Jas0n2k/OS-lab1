@@ -28,6 +28,7 @@
 
 // The <unistd.h> header is your gateway to the OS's process management facilities.
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "parse.h"
 
@@ -35,6 +36,7 @@ static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
 static int execute_cmd(Command *cmd);
 void stripwhite(char *);
+void execute_command(Command *cmd);
 
 int main(void)
 {
@@ -172,4 +174,44 @@ void stripwhite(char *string)
   }
 
   string[++i] = '\0';
+}
+
+void execute_command(Command *cmd) {
+    // For now, handle only single commands (no pipes yet)
+    if (cmd->pgm == NULL) {
+        return;  // No command to execute
+    }
+
+    // Get the first program in the list
+    // Note: programs are stored in reverse order, so we need the last one
+    Pgm *pgm = cmd->pgm;
+
+    // For single commands, there should be only one program
+    // Skip to the actual first command (last in the reversed list)
+    while (pgm->next != NULL) {
+        pgm = pgm->next;
+    }
+
+    // Fork a child process
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        // Child process
+        // Execute the command using execvp which searches PATH
+        execvp(pgm->pgmlist[0], pgm->pgmlist);
+
+        // If execvp returns, it failed
+        perror("execvp failed");
+        exit(1);
+
+    } else if (pid > 0) {
+        // Parent process
+        // Wait for child to complete (foreground execution for now)
+        int status;
+        wait(&status);
+
+    } else {
+        // Fork failed
+        perror("fork failed");
+    }
 }
