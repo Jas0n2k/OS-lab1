@@ -36,17 +36,16 @@ static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
 static int execute_cmd(Command *cmd);
 void stripwhite(char *);
-void execute_command(Command *cmd);
 
 int main(void)
 {
   for (;;)
   {
     char *line;
-    line = readline("> ");
-    if (line == NULL)
+    line = readline("lsh> ");
+    if (line == NULL) // readline() returns NULL on EOF
     {
-      printf("\n");
+      printf("\nexit\n");
       break;
     }
     // Remove leading and trailing whitespace from the line
@@ -58,11 +57,11 @@ int main(void)
       add_history(line);
 
       Command cmd;
+
       if (parse(line, &cmd) == 1)
       {
-        // Just prints cmd
         print_cmd(&cmd);
-        execute_cmd(&cmd); // TO-DO
+        execute_cmd(&cmd);
       }
       else
       {
@@ -128,20 +127,75 @@ static int execute_cmd(Command *cmd)
     return -1; // Nothing to execute
   }
 
+  char *cmd_name = cmd->pgm->pgmlist[0];
+  int argc = 0;
+  while (cmd->pgm->pgmlist[argc] != NULL)
+    argc++;
+
+  if (strcmp(cmd_name, "exit") == 0)
+  {
+    if (argc > 1)
+    {
+      fprintf(stderr, "exit: too many arguments\n");
+      return -1;
+    }
+
+    printf("\nexit\n");
+    exit(0);
+  }
+
+  if (strcmp(cmd_name, "cd") == 0)
+  {
+    if (argc > 2)
+    {
+      fprintf(stderr, "cd: too many arguments\n");
+      return -1;
+    }
+
+    char *path = cmd->pgm->pgmlist[1];
+    if (path == NULL)
+    {
+      path = getenv("HOME"); // Default to HOME if no path provided
+    }
+    if (chdir(path) != 0)
+    {
+      perror("cd failed");
+      return -1;
+    }
+    return 0;
+  }
+
   Pgm *current_pgm = cmd->pgm;
 
   pid_t pid = fork();
-  assert(pid >= 0);
+
+  if (pid < 0) // Fork failed
+  {
+    perror("Fork failed");
+    return -1;
+  }
+
   if (pid == 0)
   {
     // execute command
     // WORKS ONLY FOR SIMPLE CMDS
     execvp(current_pgm->pgmlist[0], current_pgm->pgmlist);
   }
-  else
+
+  else if (pid > 0)
   {
-    // parent proccess should wait for child to finish
-    wait(NULL);
+    if (cmd->background == 0)
+    {
+      signal(SIGINT, SIG_IGN); // Ignore SIGINT in parent
+      wait(NULL);
+      signal(SIGINT, SIG_DFL); // Restore default SIGINT handling after blocking wait
+    }
+    else
+    {
+
+      printf("Process running in background with PID: %d\n", pid);
+      // No wait, background process
+    }
   }
 
   // Ignore the piping for now
@@ -174,44 +228,4 @@ void stripwhite(char *string)
   }
 
   string[++i] = '\0';
-}
-
-void execute_command(Command *cmd) {
-    // For now, handle only single commands (no pipes yet)
-    if (cmd->pgm == NULL) {
-        return;  // No command to execute
-    }
-
-    // Get the first program in the list
-    // Note: programs are stored in reverse order, so we need the last one
-    Pgm *pgm = cmd->pgm;
-
-    // For single commands, there should be only one program
-    // Skip to the actual first command (last in the reversed list)
-    while (pgm->next != NULL) {
-        pgm = pgm->next;
-    }
-
-    // Fork a child process
-    pid_t pid = fork();
-
-    if (pid == 0) {
-        // Child process
-        // Execute the command using execvp which searches PATH
-        execvp(pgm->pgmlist[0], pgm->pgmlist);
-
-        // If execvp returns, it failed
-        perror("execvp failed");
-        exit(1);
-
-    } else if (pid > 0) {
-        // Parent process
-        // Wait for child to complete (foreground execution for now)
-        int status;
-        wait(&status);
-
-    } else {
-        // Fork failed
-        perror("fork failed");
-    }
 }
