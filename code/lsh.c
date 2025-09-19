@@ -45,17 +45,19 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 static void sigchld_handler(int sig)
 {
   // Reap all available zombie children
-  while (waitpid(-1, NULL, WNOHANG) > 0);
+  while (waitpid(-1, NULL, WNOHANG) > 0)
+    ;
 }
 
 int main(void)
 {
-  signal(SIGINT, SIG_IGN); // Ignore Ctrl-C in the shell
+  signal(SIGINT, SIG_IGN);          // Ignore Ctrl-C in the shell
   signal(SIGCHLD, sigchld_handler); // Handle child process termination
   for (;;)
   {
     // Reap any finished background processes
-    while (waitpid(-1, NULL, WNOHANG) > 0);
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+      ;
 
     char *line;
     line = readline("lsh> ");
@@ -261,7 +263,8 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 
   if (pid == 0)
   {
-    signal(SIGINT, SIG_DFL); // Restore default Ctrl-C behavior in child
+    if (!cmd->background)
+      signal(SIGINT, SIG_DFL);
 
     // Handle input redirection (only for first command in pipeline)
     if (cmd_idx == num_cmds - 1 && cmd->rstdin)
