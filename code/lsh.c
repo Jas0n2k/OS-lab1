@@ -94,54 +94,18 @@ int main(void)
   return 0;
 }
 
-/*
- * Print a Command structure as returned by parse on stdout.
- *
- * Helper function, no need to change. Might be useful to study as inspiration.
- */
-static void print_cmd(Command *cmd_list)
+static int check_built_ins(Pgm *current_pgm, int argc)
 {
-  printf("------------------------------\n");
-  printf("Parse OK\n");
-  printf("stdin:      %s\n", cmd_list->rstdin ? cmd_list->rstdin : "<none>");
-  printf("stdout:     %s\n", cmd_list->rstdout ? cmd_list->rstdout : "<none>");
-  printf("background: %s\n", cmd_list->background ? "true" : "false");
-  printf("Pgms:\n");
-  print_pgm(cmd_list->pgm);
-  printf("------------------------------\n");
-}
-
-/* Print a (linked) list of Pgm:s.
- *
- * Helper function, no need to change. Might be useful to study as inpsiration.
- */
-static void print_pgm(Pgm *p)
-{
-  if (p == NULL)
-  {
-    return;
-  }
-  else
-  {
-    char **pl = p->pgmlist;
-
-    /* The list is in reversed order so print
-     * it reversed to get right
-     */
-    print_pgm(p->next);
-    printf("            * [ ");
-    while (*pl)
-    {
-      printf("%s ", *pl++);
-    }
-    printf("]\n");
-  }
-}
-
-static int check_built_ins(Pgm *current_pgm)
-{
+  // Built-in command: cd
   if (strcmp(current_pgm->pgmlist[0], "cd") == 0)
   {
+    // cd never takes more than 1 argument
+    if (argc > 2)
+    {
+      fprintf(stderr, "cd: too many arguments\n");
+      return -1;
+    }
+
     if (current_pgm->pgmlist[1] == NULL)
     {
       fprintf(stderr, "cd : missing argument");
@@ -152,8 +116,17 @@ static int check_built_ins(Pgm *current_pgm)
     }
     return 0;
   }
+  // Built-in command: exit
   else if (strcmp(current_pgm->pgmlist[0], "exit") == 0)
   {
+    // exit never takes arguments
+    if (argc > 1)
+    {
+      fprintf(stderr, "exit: too many arguments\n");
+      return -1;
+    }
+
+    printf("\nexit\n");
     exit(0);
   }
   return 1;
@@ -171,53 +144,21 @@ static int execute_cmd(Command *cmd)
   while (cmd->pgm->pgmlist[argc] != NULL)
     argc++;
 
-  if (strcmp(cmd_name, "exit") == 0)
-  {
-    if (argc > 1)
-    {
-      fprintf(stderr, "exit: too many arguments\n");
-      return -1;
-    }
-
-    printf("\nexit\n");
-    exit(0);
-  }
-
-  if (strcmp(cmd_name, "cd") == 0)
-  {
-    if (argc > 2)
-    {
-      fprintf(stderr, "cd: too many arguments\n");
-      return -1;
-    }
-
-    char *path = cmd->pgm->pgmlist[1];
-    if (path == NULL)
-    {
-      path = getenv("HOME"); // Default to HOME if no path provided
-    }
-    if (chdir(path) != 0)
-    {
-      perror("cd failed");
-      return -1;
-    }
-    return 0;
-  }
-
   Pgm *current_pgm = cmd->pgm;
 
-  if (check_built_ins(current_pgm) != 0)
+  if (check_built_ins(current_pgm, argc) != 0)
   {
-
     // Count commands
     int num_cmds = 0;
     for (Pgm *tmp = current_pgm; tmp; tmp = tmp->next)
       num_cmds++;
 
     // Create pipes
+    // Each pipe needs 2 fds, and we need (num_cmds - 1) pipes
     int pipefds[2 * (num_cmds - 1)];
     for (int i = 0; i < num_cmds - 1; i++)
     {
+      // create a pipe
       if (pipe(pipefds + 2 * i) < 0)
       {
         perror("pipe");
@@ -263,6 +204,8 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 
   if (pid == 0)
   {
+    // only set default signal handler for SIGINT if not background
+    // background processes should ignore SIGINT
     if (!cmd->background)
       signal(SIGINT, SIG_DFL);
 
@@ -315,6 +258,50 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 
   // Parent process continues to next iteration
   return 0;
+}
+
+/*
+ * Print a Command structure as returned by parse on stdout.
+ *
+ * Helper function, no need to change. Might be useful to study as inspiration.
+ */
+static void print_cmd(Command *cmd_list)
+{
+  printf("------------------------------\n");
+  printf("Parse OK\n");
+  printf("stdin:      %s\n", cmd_list->rstdin ? cmd_list->rstdin : "<none>");
+  printf("stdout:     %s\n", cmd_list->rstdout ? cmd_list->rstdout : "<none>");
+  printf("background: %s\n", cmd_list->background ? "true" : "false");
+  printf("Pgms:\n");
+  print_pgm(cmd_list->pgm);
+  printf("------------------------------\n");
+}
+
+/* Print a (linked) list of Pgm:s.
+ *
+ * Helper function, no need to change. Might be useful to study as inpsiration.
+ */
+static void print_pgm(Pgm *p)
+{
+  if (p == NULL)
+  {
+    return;
+  }
+  else
+  {
+    char **pl = p->pgmlist;
+
+    /* The list is in reversed order so print
+     * it reversed to get right
+     */
+    print_pgm(p->next);
+    printf("            * [ ");
+    while (*pl)
+    {
+      printf("%s ", *pl++);
+    }
+    printf("]\n");
+  }
 }
 
 /* Strip whitespace from the start and end of a string.
