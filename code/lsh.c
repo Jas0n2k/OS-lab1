@@ -31,18 +31,27 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include "parse.h"
 
+static void sigchld_handler(int sig);
 static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
 static int execute_cmd(Command *cmd);
 void stripwhite(char *);
 static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd);
 
+static void sigchld_handler(int sig)
+{
+  // Reap all available zombie children
+  while (waitpid(-1, NULL, WNOHANG) > 0);
+}
+
 int main(void)
 {
   signal(SIGINT, SIG_IGN); // Ignore Ctrl-C in the shell
+  signal(SIGCHLD, sigchld_handler); // Handle child process termination
   for (;;)
   {
     // Reap any finished background processes
@@ -216,6 +225,12 @@ static int execute_cmd(Command *cmd)
     // Execute recursively
     execute_pipeline(current_pgm, 0, num_cmds, pipefds, cmd);
 
+    // Close all pipe fds in parent
+    for (int i = 0; i < 2 * (num_cmds - 1); i++)
+    {
+      close(pipefds[i]);
+    }
+
     // Wait for children
     if (!cmd->background)
     {
@@ -247,30 +262,55 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
   if (pid == 0)
   {
     signal(SIGINT, SIG_DFL); // Restore default Ctrl-C behavior in child
+
+    // Handle input redirection (only for first command in pipeline)
+    if (cmd_idx == num_cmds - 1 && cmd->rstdin)
+    {
+      int fd_in = open(cmd->rstdin, O_RDONLY);
+      if (fd_in < 0)
+      {
+        perror("open input file");
+        exit(1);
+      }
+      dup2(fd_in, STDIN_FILENO);
+      close(fd_in);
+    }
     // read previous pipe if not first in pipeline
-    if (cmd_idx < num_cmds - 1)
+    else if (cmd_idx < num_cmds - 1)
     {
       dup2(pipefds[2 * cmd_idx], STDIN_FILENO);
     }
 
+    // Handle output redirection (only for last command in pipeline)
+    if (cmd_idx == 0 && cmd->rstdout)
+    {
+      int fd_out = open(cmd->rstdout, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (fd_out < 0)
+      {
+        perror("open output file");
+        exit(1);
+      }
+      dup2(fd_out, STDOUT_FILENO);
+      close(fd_out);
+    }
     // Not the last in pipeline → write to next pipe
-    if (cmd_idx > 0)
+    else if (cmd_idx > 0)
     {
       dup2(pipefds[2 * (cmd_idx - 1) + 1], STDOUT_FILENO);
     }
+
+    // Close all pipe fds in child
+    for (int i = 0; i < 2 * (num_cmds - 1); i++)
+    {
+      close(pipefds[i]);
+    }
+
     execvp(p->pgmlist[0], p->pgmlist);
     perror("execvp");
     exit(1);
   }
 
-  else if (pid > 0)
-  {
-    // Close used pipe fds in parent
-    if (cmd_idx < num_cmds - 1)
-      close(pipefds[2 * cmd_idx]);
-    if (cmd_idx > 0)
-      close(pipefds[2 * (cmd_idx - 1) + 1]);
-  }
+  // Parent process continues to next iteration
   return 0;
 }
 
