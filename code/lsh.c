@@ -38,17 +38,17 @@ static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
 static int execute_cmd(Command *cmd);
 void stripwhite(char *);
-static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd);
+static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd);
 
 int main(void)
 {
   for (;;)
   {
     char *line;
-    line = readline("> ");
-    if (line == NULL)
+    line = readline("lsh> ");
+    if (line == NULL) // readline() returns NULL on EOF
     {
-      printf("\n");
+      printf("\nexit\n");
       break;
     }
     // Remove leading and trailing whitespace from the line
@@ -123,20 +123,21 @@ static void print_pgm(Pgm *p)
   }
 }
 
-static int check_built_ins(Pgm *current_pgm){
-  if(strcmp(current_pgm->pgmlist[0], "cd") == 0)
+static int check_built_ins(Pgm *current_pgm)
+{
+  if (strcmp(current_pgm->pgmlist[0], "cd") == 0)
   {
-    if(current_pgm->pgmlist[1] == NULL)
+    if (current_pgm->pgmlist[1] == NULL)
     {
       fprintf(stderr, "cd : missing argument");
     }
-    else if(chdir(current_pgm->pgmlist[1]) != 0)
+    else if (chdir(current_pgm->pgmlist[1]) != 0)
     {
       perror("cd");
     }
     return 0;
   }
-  else if(strcmp(current_pgm->pgmlist[0], "exit") == 0)
+  else if (strcmp(current_pgm->pgmlist[0], "exit") == 0)
   {
     exit(0);
   }
@@ -150,51 +151,94 @@ static int execute_cmd(Command *cmd)
     return -1; // Nothing to execute
   }
 
+  char *cmd_name = cmd->pgm->pgmlist[0];
+  int argc = 0;
+  while (cmd->pgm->pgmlist[argc] != NULL)
+    argc++;
+
+  if (strcmp(cmd_name, "exit") == 0)
+  {
+    if (argc > 1)
+    {
+      fprintf(stderr, "exit: too many arguments\n");
+      return -1;
+    }
+
+    printf("\nexit\n");
+    exit(0);
+  }
+
+  if (strcmp(cmd_name, "cd") == 0)
+  {
+    if (argc > 2)
+    {
+      fprintf(stderr, "cd: too many arguments\n");
+      return -1;
+    }
+
+    char *path = cmd->pgm->pgmlist[1];
+    if (path == NULL)
+    {
+      path = getenv("HOME"); // Default to HOME if no path provided
+    }
+    if (chdir(path) != 0)
+    {
+      perror("cd failed");
+      return -1;
+    }
+    return 0;
+  }
+
   Pgm *current_pgm = cmd->pgm;
 
-  if(check_built_ins(current_pgm) != 0)
+  if (check_built_ins(current_pgm) != 0)
   {
 
-  // Count commands
-  int num_cmds = 0;
-  for (Pgm *tmp = current_pgm; tmp; tmp = tmp->next)
-    num_cmds++;
+    // Count commands
+    int num_cmds = 0;
+    for (Pgm *tmp = current_pgm; tmp; tmp = tmp->next)
+      num_cmds++;
 
-  // Create pipes
-  int pipefds[2 * (num_cmds - 1)];
-  for (int i = 0; i < num_cmds - 1; i++)
-  {
-    if (pipe(pipefds + 2 * i) < 0)
+    // Create pipes
+    int pipefds[2 * (num_cmds - 1)];
+    for (int i = 0; i < num_cmds - 1; i++)
     {
-      perror("pipe");
-      exit(1);
+      if (pipe(pipefds + 2 * i) < 0)
+      {
+        perror("pipe");
+        exit(1);
+      }
     }
-  }
-  // Execute recursively
-  execute_pipeline(current_pgm, 0, num_cmds, pipefds, cmd);
+    // Execute recursively
+    execute_pipeline(current_pgm, 0, num_cmds, pipefds, cmd);
 
-  // Wait for children
-  if (!cmd->background)
-  {
-    for (int i = 0; i < num_cmds; i++)
-      wait(NULL);
-  }
-  return 0;
+    // Wait for children
+    if (!cmd->background)
+    {
+      for (int i = 0; i < num_cmds; i++)
+        wait(NULL);
+    }
+    return 0;
   }
 }
 
 // Recursive helper: execute from head to tail
-static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd)
+static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd)
 {
   if (p == NULL)
-    return;
+    return 0;
 
   // Recurse first to reach the earliest command
   execute_pipeline(p->next, cmd_idx + 1, num_cmds, pipefds, cmd);
 
   // Fork this command AFTER recursion unwinds
   pid_t pid = fork();
-  assert(pid >= 0);
+
+  if (pid < 0) // Fork failed
+  {
+    perror("Fork failed");
+    return -1;
+  }
 
   if (pid == 0)
   {
@@ -213,7 +257,8 @@ static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Co
     perror("execvp");
     exit(1);
   }
-  else
+
+  else if (pid > 0)
   {
     // Close used pipe fds in parent
     if (cmd_idx < num_cmds - 1)
@@ -221,6 +266,7 @@ static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Co
     if (cmd_idx > 0)
       close(pipefds[2 * (cmd_idx - 1) + 1]);
   }
+  return 0;
 }
 
 /* Strip whitespace from the start and end of a string.
