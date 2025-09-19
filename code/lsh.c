@@ -42,6 +42,7 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 
 int main(void)
 {
+  signal(SIGINT, SIG_IGN); // Ignore Ctrl-C in the shell
   for (;;)
   {
     char *line;
@@ -242,6 +243,7 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 
   if (pid == 0)
   {
+    signal(SIGINT, SIG_DFL); // Restore default Ctrl-C behavior in child
     // read previous pipe if not first in pipeline
     if (cmd_idx < num_cmds - 1)
     {
