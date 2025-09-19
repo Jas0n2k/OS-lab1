@@ -35,6 +35,7 @@ static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
 static int execute_cmd(Command *cmd);
 void stripwhite(char *);
+static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd);
 
 int main(void)
 {
@@ -128,23 +129,96 @@ static int execute_cmd(Command *cmd)
 
   Pgm *current_pgm = cmd->pgm;
 
-  pid_t pid = fork();
-  assert(pid >= 0);
-  if (pid == 0)
+  // Count commands
+  int num_cmds = 0;
+  for (Pgm *tmp = current_pgm; tmp; tmp = tmp->next)
+    num_cmds++;
+
+  // Create pipes
+  int pipefds[2 * (num_cmds - 1)];
+  for (int i = 0; i < num_cmds - 1; i++)
   {
-    // execute command
-    // WORKS ONLY FOR SIMPLE CMDS
-    execvp(current_pgm->pgmlist[0], current_pgm->pgmlist);
+    if (pipe(pipefds + 2 * i) < 0)
+    {
+      perror("pipe");
+      exit(1);
+    }
   }
-  else
+  // Execute recursively
+  execute_pipeline(current_pgm, 0, num_cmds, pipefds, cmd);
+
+  // Parent closes all pipes
+  for (int i = 0; i < 2 * (num_cmds - 1); i++)
+    close(pipefds[i]);
+
+  // Wait for children
+  if (!cmd->background)
   {
-    // parent proccess should wait for child to finish
-    wait(NULL);
+    for (int i = 0; i < num_cmds; i++)
+      wait(NULL);
   }
 
   // Ignore the piping for now
 
   return 0;
+}
+
+// Recursive helper: execute from head to tail
+static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd)
+{
+  if (p == NULL)
+    return;
+
+  // Recurse first to reach the earliest command
+  execute_pipeline(p->next, cmd_idx + 1, num_cmds, pipefds, cmd);
+
+  // Fork this command AFTER recursion unwinds
+  pid_t pid = fork();
+  assert(pid >= 0);
+
+  if (pid == 0)
+  {
+    // read previous pipe if not first in pipeline
+    if (cmd_idx < num_cmds - 1)
+    {
+      dup2(pipefds[2 * cmd_idx], STDIN_FILENO);
+    }
+    else if (cmd->rstdin)
+    {
+      int fd = open(cmd->rstdin, O_RDONLY);
+      if (fd < 0)
+      {
+        perror("open");
+        exit(1);
+      }
+      dup2(fd, STDIN_FILENO);
+      close(fd);
+    }
+    // Not the last in pipeline → write to next pipe
+    if (cmd_idx > 0)
+    {
+      dup2(pipefds[2 * (cmd_idx - 1) + 1], STDOUT_FILENO);
+    }
+    else if (cmd->rstdout)
+    {
+      int fd = open(cmd->rstdout, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (fd < 0)
+      {
+        perror("open");
+        exit(1);
+      }
+      dup2(fd, STDOUT_FILENO);
+      close(fd);
+    }
+
+    // Close all pipes
+    for (int i = 0; i < 2 * (num_cmds - 1); i++)
+      close(pipefds[i]);
+
+    execvp(p->pgmlist[0], p->pgmlist);
+    perror("execvp");
+    exit(1);
+  }
 }
 
 /* Strip whitespace from the start and end of a string.
