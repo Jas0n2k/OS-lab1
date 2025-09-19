@@ -29,6 +29,9 @@
 // The <unistd.h> header is your gateway to the OS's process management facilities.
 #include <unistd.h>
 
+#include <errno.h>
+#include <fcntl.h>
+
 #include "parse.h"
 
 static void print_cmd(Command *cmd); // Use Linked List to store commands
@@ -157,9 +160,6 @@ static int execute_cmd(Command *cmd)
     for (int i = 0; i < num_cmds; i++)
       wait(NULL);
   }
-
-  // Ignore the piping for now
-
   return 0;
 }
 
@@ -183,17 +183,7 @@ static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Co
     {
       dup2(pipefds[2 * cmd_idx], STDIN_FILENO);
     }
-    else if (cmd->rstdin)
-    {
-      int fd = open(cmd->rstdin, O_RDONLY);
-      if (fd < 0)
-      {
-        perror("open");
-        exit(1);
-      }
-      dup2(fd, STDIN_FILENO);
-      close(fd);
-    }
+
     // Not the last in pipeline → write to next pipe
     if (cmd_idx > 0)
     {
