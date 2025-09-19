@@ -189,17 +189,6 @@ static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Co
     {
       dup2(pipefds[2 * (cmd_idx - 1) + 1], STDOUT_FILENO);
     }
-    else if (cmd->rstdout)
-    {
-      int fd = open(cmd->rstdout, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-      if (fd < 0)
-      {
-        perror("open");
-        exit(1);
-      }
-      dup2(fd, STDOUT_FILENO);
-      close(fd);
-    }
 
     // Close all pipes
     for (int i = 0; i < 2 * (num_cmds - 1); i++)
