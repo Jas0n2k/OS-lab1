@@ -123,6 +123,26 @@ static void print_pgm(Pgm *p)
   }
 }
 
+static int check_built_ins(Pgm *current_pgm){
+  if(strcmp(current_pgm->pgmlist[0], "cd") == 0)
+  {
+    if(current_pgm->pgmlist[1] == NULL)
+    {
+      fprintf(stderr, "cd : missing argument");
+    }
+    else if(chdir(current_pgm->pgmlist[1]) != 0)
+    {
+      perror("cd");
+    }
+    return 0;
+  }
+  else if(strcmp(current_pgm->pgmlist[0], "exit") == 0)
+  {
+    exit(0);
+  }
+  return 1;
+}
+
 static int execute_cmd(Command *cmd)
 {
   if (cmd == NULL)
@@ -131,6 +151,9 @@ static int execute_cmd(Command *cmd)
   }
 
   Pgm *current_pgm = cmd->pgm;
+
+  if(check_built_ins(current_pgm) != 0)
+  {
 
   // Count commands
   int num_cmds = 0;
@@ -157,6 +180,7 @@ static int execute_cmd(Command *cmd)
       wait(NULL);
   }
   return 0;
+  }
 }
 
 // Recursive helper: execute from head to tail
