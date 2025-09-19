@@ -150,10 +150,6 @@ static int execute_cmd(Command *cmd)
   // Execute recursively
   execute_pipeline(current_pgm, 0, num_cmds, pipefds, cmd);
 
-  // Parent closes all pipes
-  for (int i = 0; i < 2 * (num_cmds - 1); i++)
-    close(pipefds[i]);
-
   // Wait for children
   if (!cmd->background)
   {
@@ -189,14 +185,17 @@ static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Co
     {
       dup2(pipefds[2 * (cmd_idx - 1) + 1], STDOUT_FILENO);
     }
-
-    // Close all pipes
-    for (int i = 0; i < 2 * (num_cmds - 1); i++)
-      close(pipefds[i]);
-
     execvp(p->pgmlist[0], p->pgmlist);
     perror("execvp");
     exit(1);
+  }
+  else
+  {
+    // Close used pipe fds in parent
+    if (cmd_idx < num_cmds - 1)
+      close(pipefds[2 * cmd_idx]);
+    if (cmd_idx > 0)
+      close(pipefds[2 * (cmd_idx - 1) + 1]);
   }
 }
 
