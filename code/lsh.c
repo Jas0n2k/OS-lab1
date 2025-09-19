@@ -28,6 +28,9 @@
 
 // The <unistd.h> header is your gateway to the OS's process management facilities.
 #include <unistd.h>
+
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 
 #include "parse.h"
@@ -36,6 +39,7 @@ static void print_cmd(Command *cmd); // Use Linked List to store commands
 static void print_pgm(Pgm *p);
 static int execute_cmd(Command *cmd);
 void stripwhite(char *);
+static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd);
 
 int main(void)
 {
@@ -167,6 +171,43 @@ static int execute_cmd(Command *cmd)
 
   Pgm *current_pgm = cmd->pgm;
 
+  // Count commands
+  int num_cmds = 0;
+  for (Pgm *tmp = current_pgm; tmp; tmp = tmp->next)
+    num_cmds++;
+
+  // Create pipes
+  int pipefds[2 * (num_cmds - 1)];
+  for (int i = 0; i < num_cmds - 1; i++)
+  {
+    if (pipe(pipefds + 2 * i) < 0)
+    {
+      perror("pipe");
+      exit(1);
+    }
+  }
+  // Execute recursively
+  execute_pipeline(current_pgm, 0, num_cmds, pipefds, cmd);
+
+  // Wait for children
+  if (!cmd->background)
+  {
+    for (int i = 0; i < num_cmds; i++)
+      wait(NULL);
+  }
+  return 0;
+}
+
+// Recursive helper: execute from head to tail
+static void execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd)
+{
+  if (p == NULL)
+    return;
+
+  // Recurse first to reach the earliest command
+  execute_pipeline(p->next, cmd_idx + 1, num_cmds, pipefds, cmd);
+
+  // Fork this command AFTER recursion unwinds
   pid_t pid = fork();
 
   if (pid < 0) // Fork failed
@@ -177,30 +218,30 @@ static int execute_cmd(Command *cmd)
 
   if (pid == 0)
   {
-    // execute command
-    // WORKS ONLY FOR SIMPLE CMDS
-    execvp(current_pgm->pgmlist[0], current_pgm->pgmlist);
+    // read previous pipe if not first in pipeline
+    if (cmd_idx < num_cmds - 1)
+    {
+      dup2(pipefds[2 * cmd_idx], STDIN_FILENO);
+    }
+
+    // Not the last in pipeline → write to next pipe
+    if (cmd_idx > 0)
+    {
+      dup2(pipefds[2 * (cmd_idx - 1) + 1], STDOUT_FILENO);
+    }
+    execvp(p->pgmlist[0], p->pgmlist);
+    perror("execvp");
+    exit(1);
   }
 
   else if (pid > 0)
   {
-    if (cmd->background == 0)
-    {
-      signal(SIGINT, SIG_IGN); // Ignore SIGINT in parent
-      wait(NULL);
-      signal(SIGINT, SIG_DFL); // Restore default SIGINT handling after blocking wait
-    }
-    else
-    {
-
-      printf("Process running in background with PID: %d\n", pid);
-      // No wait, background process
-    }
+    // Close used pipe fds in parent
+    if (cmd_idx < num_cmds - 1)
+      close(pipefds[2 * cmd_idx]);
+    if (cmd_idx > 0)
+      close(pipefds[2 * (cmd_idx - 1) + 1]);
   }
-
-  // Ignore the piping for now
-
-  return 0;
 }
 
 /* Strip whitespace from the start and end of a string.
