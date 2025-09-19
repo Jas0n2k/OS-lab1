@@ -45,6 +45,9 @@ int main(void)
   signal(SIGINT, SIG_IGN); // Ignore Ctrl-C in the shell
   for (;;)
   {
+    // Reap any finished background processes
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+
     char *line;
     line = readline("lsh> ");
     if (line == NULL) // readline() returns NULL on EOF
