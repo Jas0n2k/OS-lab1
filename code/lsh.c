@@ -51,13 +51,10 @@ static void sigchld_handler(int sig)
 
 int main(void)
 {
-  signal(SIGINT, SIG_IGN);          // Ignore Ctrl-C in the shell
+  signal(SIGINT, SIG_IGN);          // Ignore Ctrl-C in the parent
   signal(SIGCHLD, sigchld_handler); // Handle child process termination
   for (;;)
   {
-    // Reap any finished background processes
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-      ;
 
     char *line;
     line = readline("lsh> ");
@@ -79,7 +76,7 @@ int main(void)
       {
         // Just prints cmd
         print_cmd(&cmd);
-        execute_cmd(&cmd); // TO-DO
+        execute_cmd(&cmd);
       }
       else
       {
@@ -99,7 +96,7 @@ static int check_built_ins(Pgm *current_pgm, int argc)
   // Built-in command: cd
   if (strcmp(current_pgm->pgmlist[0], "cd") == 0)
   {
-    // cd never takes more than 1 argument
+
     if (argc > 2)
     {
       fprintf(stderr, "cd: too many arguments\n");
@@ -148,17 +145,16 @@ static int execute_cmd(Command *cmd)
 
   if (check_built_ins(current_pgm, argc) != 0)
   {
-    // Count commands
+
     int num_cmds = 0;
     for (Pgm *tmp = current_pgm; tmp; tmp = tmp->next)
       num_cmds++;
 
-    // Create pipes
     // Each pipe needs 2 fds, and we need (num_cmds - 1) pipes
     int pipefds[2 * (num_cmds - 1)];
     for (int i = 0; i < num_cmds - 1; i++)
     {
-      // create a pipe
+      // create the pipes
       if (pipe(pipefds + 2 * i) < 0)
       {
         perror("pipe");
@@ -174,9 +170,9 @@ static int execute_cmd(Command *cmd)
       close(pipefds[i]);
     }
 
-    // Wait for children
     if (!cmd->background)
     {
+      // Wait for children
       for (int i = 0; i < num_cmds; i++)
         wait(NULL);
     }
@@ -184,7 +180,7 @@ static int execute_cmd(Command *cmd)
   }
 }
 
-// Recursive helper: execute from head to tail
+// Recursive helper
 static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Command *cmd)
 {
   if (p == NULL)
@@ -193,7 +189,6 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
   // Recurse first to reach the earliest command
   execute_pipeline(p->next, cmd_idx + 1, num_cmds, pipefds, cmd);
 
-  // Fork this command AFTER recursion unwinds
   pid_t pid = fork();
 
   if (pid < 0) // Fork failed
@@ -204,12 +199,11 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
 
   if (pid == 0)
   {
-    // only set default signal handler for SIGINT if not background
-    // background processes should ignore SIGINT
+    // Child process
     if (!cmd->background)
       signal(SIGINT, SIG_DFL);
 
-    // Handle input redirection (only for first command in pipeline)
+    // Handle input redirection
     if (cmd_idx == num_cmds - 1 && cmd->rstdin)
     {
       int fd_in = open(cmd->rstdin, O_RDONLY);
@@ -227,7 +221,7 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
       dup2(pipefds[2 * cmd_idx], STDIN_FILENO);
     }
 
-    // Handle output redirection (only for last command in pipeline)
+    // Handle output redirection
     if (cmd_idx == 0 && cmd->rstdout)
     {
       int fd_out = open(cmd->rstdout, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -239,7 +233,7 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
       dup2(fd_out, STDOUT_FILENO);
       close(fd_out);
     }
-    // Not the last in pipeline → write to next pipe
+    // write to next pipe
     else if (cmd_idx > 0)
     {
       dup2(pipefds[2 * (cmd_idx - 1) + 1], STDOUT_FILENO);
@@ -251,6 +245,7 @@ static int execute_pipeline(Pgm *p, int cmd_idx, int num_cmds, int *pipefds, Com
       close(pipefds[i]);
     }
 
+    // Execute command
     execvp(p->pgmlist[0], p->pgmlist);
     perror("execvp");
     exit(1);
