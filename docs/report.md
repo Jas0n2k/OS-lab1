@@ -1,40 +1,63 @@
-In which order?
-We started which are run directly with execvp such as ls and date. We then implemented the in built-in functions such as cd and exit. We then split up the I/O redirection, background processes and pipes. This proved difficult since especially background processes are closely linked to how you handle the two others. Therefore there was a large amount of collaboration between the group. We then finally implemented the ctrl + c or SIGINT behavior. This was quite simple but we questioned the behavior towards background processes but finally decided that it should only interrupt foreground processes which proved true when the tests then passed.
+# Lab 1 Report: Custom Shell Implementation
 
-# Lab Report: Custom Shell Implementation
+## Author
+- Nils Hugoson
+- Pengfei Li
+- Isak Söderlind
 
 ## Meeting the Specifications
 
-We successfully implemented all eight specifications required by the lab and confirmed our solution by passing all thirteen automated test cases.
+We successfully implemented all eight specifications required by the lab.
+And we confirmed our solution valid by passing all thirteen automated test cases.
+
+## Development Process & Challenges
 
 Our development process followed this sequence:
 
-1. Implemented basic external commands using `execvp` (e.g., `ls`, `date`).
-2. Added built-in commands such as `cd` and `exit`.
-3. Extended the shell with input/output redirection.
-4. Implemented support for background processes.
-5. Implemented pipelines, ensuring proper communication between multiple commands.
-6. Added signal handling for `SIGINT` (Ctrl+C), so that only foreground processes are interrupted.
+1. Implemented basic external commands (e.g., `ls`, `date`) using the function `execvp`. *(By all members during online meetings)*
+2. Added built-in commands such as `cd` and `exit`. *(By Pengfei and Isak)*
+3. Implemented **pipelines**, ensuring proper communication between multiple commands. *(By Nils)*
+4. Extended the shell with **I/O redirection**. *(By Nils)*
+5. Implemented support for **background processes**. *(By Pengfei and Isak)*
+7. Added signal handling for `SIGINT` (Ctrl+C), so that only foreground processes are interrupted. *(By Nils)*
+8. Wrapped handlers in dedicated functions and formatted the code. *(By Isak and Nils)*
+9. Debugged by running the provided tests and fixed problems with the zombie process. *(By all members via online meeting)*
 
----
+### Pipelining
 
-## Challenges Encountered
+The part of **pipes** was initially built by Nils. It is provided in the documentation that we shall respect the 'last-to-first' execution order. Let us make an example.
+``` bash
+$ ls | grep lsh.c | wc
+```
+We did not understand this concept in the first place, since we thought the pipeline execution was from left to right. (`ls` first, then `grep`, then `wc`)
+However, we soon realized that the pipeline did not go as we had planned. `ls` might start producing some output, even before `grep` was ready to receive it. This caused some bugs.
 
-One of the main difficulties when implementing pipes was to understand how pipes work and how the parser had placed the commands. It was really helpful to have the `print_pgm(Pgm \*p)` function to study as the recursive structure was kept when doing the pipes. It was also a small challenge to understand the desired behavior of pipes since we had limited experience using them.
+Then Nils took another approch, by flipping the execution order to 'last-to-first'. In general, the example above works like this:
+  1. `wc` process is created first (ready to read from pipe)
+  2. `grep` process is created second (ready to read from `ls` and write to `wc`)
+  3. `ls` process is created last (ready to write to `grep`)
 
-Another challenge was handling background processes, since they are closely related to both I/O redirection and pipelines. Coordinating these features required significant debugging and teamwork. Finally, deciding the correct behavior for `SIGINT` took some thought. We concluded that only foreground processes should be interrupted, which was confirmed by the automated tests.
+One of the main difficulties when implementing pipes was to understand how pipes really work, and how the provided parser places the commands. It was really helpful to have the `print_pgm()` function that we studied its recursive structure for building the pipes. It was also a small challenge to understand the desired behavior of pipes since we had limited experience using them.
 
----
+### I/O Redirection
+I/O redirection is quite straight-forward when we understood how the pipes work. Similarily to the previous resolution, we managed to implement the I/O redirection using the function `open()`, which is for obtaining the file descriptor in the pipelining.
+
+### Background Process
+Another challenge was handling background processes, since they are closely related to both I/O redirection and pipelines. Coordinating these features required significant debugging and teamwork. Therefore, a large amount of collaboration between the group members involved.
+
+First we found that killing the background processes seemed impossible, and it was because we did not quite understand how we should pass the `Ctrl + C` to the background process. After digging into the process management in the operating systems, we realized that we did not have to do that. By terminating the parent process, all background child processes will be handled by the OS and their parent will be a system process, usually `init.d` in linux.
+
+Deciding the correct behavior for `SIGINT` took some thought. Implementation was actually quite simple, but we questioned the behavior towards background processes but finally decided that it should only interrupt foreground processes which proved true when the tests then passed.
 
 ## Automated Tests
 
-The automated tests were highly useful. They provided immediate feedback, clarified the expected behavior of the shell, and ensured we were on the right track during development. Passing all thirteen tests gave us confidence that our implementation met the assignment requirements.
+We concluded that only foreground processes should be interrupted, which was confirmed by the automated tests.
 
----
+The automated tests were highly useful. They provided immediate feedback, detailed error logs, clarified the expected behavior of the shell, and ensured we were on the right track during development. Passing all thirteen tests gave us confidence that our implementation met the assignment requirements.
 
-## Missing Tests / Feedback
 
-The description for some of the test was a bit misleading but this was perhaps because we encountered some edge cases which triggered the assert but was not the main test for this assert.
+### Feedback
+The description text for some of the test was a bit misleading. Perhaps this was because we encountered some edge cases which triggered the assert, but it was not the main purpose for the test.
 
 ## Conclusion
 
